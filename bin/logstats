@@ -1,0 +1,1559 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2013, John A. Brunelle
+# All rights reserved.
+
+"""\
+NAME
+    logstats - summarize and visualize data in log files
+
+SYNOPSIS
+    logstats --count|--sum|--average LABEL:REGEX ... [-t SECONDS] [FILENAME...]
+
+DESCRIPTION
+    This script takes FILENAMEs where each line starts with some sort of 
+    timestamp, searches for text that matchs the given REGEXs (regular 
+    expressions) and prints and/or plots statistics about their occurrences.
+
+    For each time bin, if the REGEX was specified as a --count, it will print 
+    the total number of occurrences of the message.  If the REGEX was specified 
+    with --sum, it will print out the sum of the relevant number in the message 
+    (the REGEX must use grouping so that group(1) extracts a numeric 
+    substring).  For --average, it will print the average of the value. REGEX 
+    syntax is that of the python re module.  The LABEL is used to identify the 
+    statistic in the output.
+
+    Events do not have to be mutually exclusive -- each line is searched for 
+    all events.  As a consequence, if you want to, e.g., both count the number 
+    of occurrences of an event and average values in the messages, specify it 
+    twice, once with -c and once with -a.
+
+    By default, the script makes a time series plot.  If --totals-also or 
+    --totals-only is given, it will include stats for the entire time range.
+
+    If --show-plots or --save-plots is given, this will also plot the values 
+    (requires matplotlib).
+
+    Multiple FILENAMES may be given.  The lines from all files or collated into 
+    chronological order (if lines from more than one file specify the same 
+    time, lines are taken in the order the filenames are given).  The lines in 
+    each individual file are assumed to be in chronological order.  If no 
+    FILENAME is given, stdin is used.  Stdin may also be explicity specified 
+    using the FILENAME `-'.
+
+    This script only recognizes a select few time formats (use 
+    --print-time-formats to display them).  You can add a format with the 
+    --time-format option.  If the beginning of the a line does not match one of 
+    the known time formats, this tries to use the dateutil module, if installed 
+    (it usually comes along with matplotlib), to parse the time.  This can be 
+    easier than specifying the exact format, but there are some drawbacks:
+
+        o  The entire log entries are searched for event REGEXs, not just the 
+           part after the timestamp (so the REGEX must be constructed to not 
+           match any part of the timestamp).
+
+        o  The format of times printed by this script will not match those 
+           found in the log.
+
+        o  Using dateutil is about three times slower than an explicit format 
+           (at least for the specific formats I've tried).
+
+    The dateutil parse method is called with fuzzy=True, so unknown tokens are 
+    ignored, but you can drastically improve it's chances by giving this script 
+    the --time-nchars option to specify a the length of string to look at.
+
+    If there are any parsing errors trying to extract a time, numeric value to 
+    include in an average, etc., this script will print a warning message to 
+    stderr and move on to the next log entry.
+
+    All times have at best a resolution of whole seconds.  All counts are 
+    processed as integers, and all averages are processed as floats.  For sums, 
+    if the regex group extracts something with a `.', it's processed as a 
+    float, else it's processed as an int.
+
+    When plotting, the matplotlib module is particularly picky about timezones. 
+    You probably want to put something like `timezone: US/Eastern' in your 
+    matplotlibrc file (the default is UTC and causes matplotlib to interpret 
+    the numbers differently than the rest of this script).
+
+OPTIONS
+    -c, --count LABEL:REGEX
+        An event type to count.
+
+    -s, --sum LABEL:REGEX
+        An event type with a numeric value to sum.  The regex should use groups 
+        such that group(1) is the numeric value.
+
+    -a, --average LABEL:REGEX
+        An event type with a numeric value to average.  The regex should use 
+        groups such that group(1) is the numeric value.
+
+    -t, --interval
+        The time bin width, in seconds.  Default is 300 (5 minutes).  The 
+        special strings "minute", "hour", "day", "week", "month", and "year" 
+        can be used, too.
+
+    --tstart TIMESTAMP
+        Restrict processing to times later than or equal to the given time.  
+        The TIMESTAMP is parsed the same way as a log entry is (it doesn't have 
+        to match the format in the log).
+
+    --tend TIMESTAMP
+        Restrict processing to times earlier than the given time.  The 
+        TIMESTAMP is parsed the same way a log entry is (it doesn't have to 
+        match the format in the log).
+
+    --totals-also
+        Also print/plot the statistics for the entire time range, after the 
+        breakdown by bin.
+
+    --totals-only
+        Like --totals-also, but only print/plot the totals, no breakdown by 
+        bin.
+
+    --cumulative
+        For time series statistics, report cumulative values rather than values 
+        for each time bin independently.
+
+    --breakdown-by-field-number FIELD_NUMBER
+        For the given statistics, break them down by unique values that appear 
+        in the given FIELD_NUMBER.  This saves pre-inspecting the field and 
+        explicitly creating a separate statistic for each.  Splitting is on 
+        whitespace; indexing starts at 1 and includes the timestamp part.
+
+    --breakdown-threshold-percent PERCENT
+        When --breakdown-by-field-number is provided, group all breakdowns with 
+        total value that ends up being less than the given PERCENT of the 
+        entire value into a single entry labeled `OTHER'.
+
+    --show-plots
+        Display plots of the statistics (requires matplotlib and an X display).
+
+    --save-plots
+        Save plots of the statistics (requires matplotlib and an X display).
+
+    --extract
+        Write matching log entries to stdout; do not compute statistics.  If no 
+        event types are given, write all lines to stdout.  Use this in 
+        combination with --tstart and --tend to extract ranges from logs.  Note 
+        that lines from which a time cannot be parsed are *not* included in the 
+        output.
+
+    --no-headers
+        In the text output, don't print out the lines of identifying names for 
+        the statistics.
+
+    --title TITLE
+        Override the default title for the plot(s).
+
+    --totals-in-title
+        If there is only one statistic being plotted, add the total count/sum 
+        or overall average (depending on statistic being plotted) to the title. 
+        The applies whether --title is supplied or auto-generated.
+
+    --totals-in-legend
+        Add the total count/sum or overall average (depending on the statistic 
+        being plotted) for each statistic in the legend.  This is independent 
+        of --totals-also and --totals-only.
+
+    --bar-charts
+        If plotting statistics of totals, use vertical bar charts instead of the
+        default pie charts.
+
+    --ymin VALUE
+        The minimum value for the y-axis range.  Default is to autoscale.
+
+    --ymax VALUE
+        The maximum value for the y-axis range.  Default is to autoscale.
+
+    --units UNITS_STRING
+        Label for the Y axis, title, etc. when applicable (sums and averages). 
+        This does not do any manipulation of the values; it's just a simple 
+        label.  See also --units-conversion-factor.
+
+    --units-conversion-factor FACTOR
+        Multiply sums and averages by the given conversion FACTOR.  This can be 
+        a numerical value in any format that python's int() or float() can 
+        parse.  There is a set of special shortcut strings available, too; see 
+        --print-units-conversion-factors.
+
+    --print-units-conversion-factors
+        Print out the available --units-conversion-factor shortcut strings 
+        ('seconds-to-minutes', 'bytes-to-gigabytes', etc.) and their associated 
+        values.
+
+    --error-bars-off
+        By default, if one average is being plotted, error bars will be 
+        plotted.  Use this option to not do that.
+
+    --error-bars-on
+        By default, if more than one average is being plotted, error bars will 
+        not be plotted.  Use this option to add them.
+
+    --legend-on
+        By default, if only one statistic is being plotted, no legend will be 
+        drawn.  Use this option to add it.
+
+    --legend-off
+        By default, if more than one statistic is being plotted, a legend will 
+        be drawn.  Use this option to remove it.
+
+    --legend-location LOCATION
+        Force the legend to be in the specific location.  LOCATION must be one 
+        of the accepted matplotlib values ("right", "center", "lower left", 
+        etc., or their numerical equivalents) or "left", which is taken to mean 
+        "upper left" (why does matplotlib have "right" but no "left"?).  
+        Default is "best", but sometimes that doesn't look so good.
+
+    --time-format FORMAT
+        Add a format to the list of known formats.  Multiple --time-format 
+        options can be given to add multiple formats.  See --print-time-formats 
+        format details.
+
+    --time-nchars NUMBER
+        If the dateutil module is installed, use it instead of the specific 
+        formats.  Only look at the given NUMBER of leading characters when 
+        parsing the time.  The default is 30.
+
+    --print-time-formats
+        Print the known time formats and exit.
+
+    -h, --help
+        Print this help.
+    
+    (The deprecated options --ylabel and --no-legend have been replaced by 
+    --units and --legend-off, respectively.)
+
+EXAMPLES
+    Plot 5-second averages of a value that changes randomly every second (takes 60 seconds to run):
+        ( for i in {1..60}; do echo $(date) $RANDOM; sleep 1; done ) | logstats -a 'x: (\d+)' -t 5 --show-plots
+
+    Count successful ssh logins:
+        logstats -c 'ssh_logins: ssh.*session opened' /var/log/messages
+
+    Extract a 24 hour period from a log that uses '%Y%m%d%H%M%S' format:
+        logstats --extract --time-format %Y%m%d%H%M%S --tstart 1004261200 --tend 1004271200 full.log > day.log
+
+AUTHOR
+    Copyright (c) 2013, John A. Brunelle
+"""
+
+
+import sys, errno, time, datetime, re, getopt, copy, math, socket  #matplotlib imports are done below
+
+
+#--- definitions and data structures
+
+#stat types
+COUNT=0
+SUM=1
+AVERAGE=2
+
+stypeStrs = {
+	COUNT  : 'Count',
+	SUM    : 'Sum',
+	AVERAGE: 'Average Value',
+}
+
+class ParseException(Exception): pass
+class SkipException(Exception): pass
+
+class TimeFormat(object):
+	def __init__(self, format):
+		self.format = format
+		self.length = None  #the length of a time string formatted this way (computed later)
+
+class EventData(object):
+	def __init__(self, stype, name, regex):
+		#basic information about the type of event
+		self.stype = stype  #see `stat types' above
+		self.name  = name
+		self.regex = regex
+
+		#these are used by COUNT, SUM, and AVERAGE
+		self.all_count = 0
+		self.bin_count = 0
+		self.counts = []  #one per time bin
+
+		#these are only used by SUM and AVERAGE
+		#they start off as int, but if any entry has a `.' in it, they become floats (int + float -> float)
+		self.all_sum = 0
+		self.bin_sum = 0
+		self.sums = []  #one per time bin (on the rare occasion that the `.'s start appearing in the values midway through, it will contain mixed ints and floats)
+
+		#these are only used by AVERAGE
+		self.all_vals = []  #every value, from tzero; like self.sums, it's possible (but not likely) this will contain a mix of ints and floats
+		self.bin_vals = []  #all the values in the current bin; like self.sums, it's possible (but not likely) this will contain a mix of ints and floats
+		self.averages = []  #one per time bin
+		self.stddevs  = []  #one per time bin
+	def emptyClone(self, name):
+		e = EventData(self.stype, name, self.regex)
+		if self.stype==COUNT:
+			e.counts   = [0]*len(self.counts  )
+		elif self.stype==SUM:
+			e.counts   = [0]*len(self.counts  )
+			e.sums     = [0]*len(self.sums    )
+		elif self.stype==AVERAGE:
+			e.counts   = [0]*len(self.counts  )
+			e.sums     = [0]*len(self.sums    )
+			e.all_vals = [0]*len(self.all_vals)
+			e.bin_vals = [0]*len(self.bin_vals)
+			e.averages = [0]*len(self.averages)
+			e.stddevs  = [0]*len(self.stddevs )
+		return e
+	def add(self, e):
+		if e.stype!=self.stype:
+			raise ValueError("cannot add statistics of different type")
+		if e.stype==AVERAGE:
+			raise ValueError("adding statistics of type AVERAGE not yet supported")
+		if \
+			len(e.counts  )!=len(self.counts  ) or \
+			len(e.sums    )!=len(self.sums    ) or \
+			len(e.all_vals)!=len(self.all_vals) or \
+			len(e.bin_vals)!=len(self.bin_vals) or \
+			len(e.averages)!=len(self.averages) or \
+			len(e.stddevs )!=len(self.stddevs ):
+			raise ValueError("dimensions of accumulated data do not match")
+
+		self.all_count += e.all_count
+		self.bin_count += e.bin_count
+		self.counts = map(lambda x, y: x+ y, self.counts, e.counts)
+
+		self.all_sum += e.all_sum
+		self.bin_sum += e.bin_sum
+		self.sums   = map(lambda x, y: x+ y, self.sums  , e.sums  )
+
+
+#--- main data structure instances and global variables
+
+#all times are float, seconds from the epoch (except for MIN_TIME and MAX_TIME, which are ints)
+#plot starts at tstart, if given, else starts with first event (therefore in the latter case, bins will only be aligned with natural clock times if the first event happens to so align)
+#bin inclusiveness/exclusiveness is always [ )
+#the tail bin may end up being smaller than the rest
+
+#there are two categories of EventData instances -- those specified on the command line and, if applicable, sub-ones of those found because --breakdown-by-field was specified
+edatas_master     = []  #even if breakdown_by_field_number is not None, there's still a master (total) edata here, used internally
+edatas_breakdowns = []  #for each edata, a dict keyed by unique field values; if breakdown_by_field_number is None the dict will always be empty
+
+#beginning of time range of events of interest
+tstart = None
+
+#end of time range of events of interest
+tend = None
+
+#beginning of the plot (tstart, if given, otherwise the time of the first event of interest)
+tzero = None
+
+#time of the beginning of the bin we're currently working on
+tbinstart = None
+
+#time of the last seen entry (which may jump to tend, if given)
+tlast = None
+
+tbin = 300
+tstartstr = None
+tendstr   = None
+
+show_plots = False
+save_plots = False
+do_bins = True
+do_totals = False
+cumulative = False
+totals_in_title = False
+totals_in_legend = False
+bar_charts = False
+units = None
+units_conversion_factor = None
+title = None
+legend_location = 0  #0 is same as 'best'
+headers = True
+allow_incomplete_bin = True  #this is a work in progress and currently must be True
+
+ymin = None
+ymax = None
+
+#whether or not to draw various things; default is conditional, these force one way or the other (both can't be True)
+error_bars_on  = False
+error_bars_off = False
+legend_on  = False
+legend_off = False
+
+timeformats = [
+	TimeFormat('%Y-%m-%d %H:%M:%S'      ),  #2010-04-26 15:40:01         , what I often use
+	TimeFormat('%b %d %H:%M:%S'         ),  #Apr 26 15:40:01             , e.g. syslog
+	TimeFormat('%a %b %d %H:%M:%S %Z %Y'),  #Mon Apr 26 15:40:01 EDT 2010, e.g. date, time.ctime()
+	TimeFormat('%a %b %d %H:%M:%S %Y'   ),  #Mon Apr 26 15:40:01 2010
+	TimeFormat('%a %b %d %H:%M:%S'      ),  #Mon Apr 26 15:40:01
+	TimeFormat('%H:%M:%S'               ),  #15:40:01                    , e.g. strace -t (-tt is %H:%M:%S.%f, but only 2.6 supports %f for microseconds, and this script doesn't use sub-second intervals yet anyways)
+]
+trytimeformats = True
+time_nchars = 30
+
+unitsconversionfactors = (
+		('seconds-to-minutes', 1./(60)                  ),
+		('seconds-to-hours'  , 1./(60*60)               ),
+		('seconds-to-days'   , 1./(60*60*24)            ),
+		('seconds-to-weeks'  , 1./(60*60*24*7)          ),
+		('seconds-to-months' , 1./(60*60*24*30.4368499) ),
+		('seconds-to-years'  , 1./(60*60*24*365.242199) ),
+
+		('bytes-to-kB'       , 1./10**3 ),
+		('bytes-to-kilobytes', 1./10**3 ),
+		('bytes-to-MB'       , 1./10**6 ),
+		('bytes-to-megabytes', 1./10**6 ),
+		('bytes-to-GB'       , 1./10**9 ),
+		('bytes-to-gigabytes', 1./10**9 ),
+		('bytes-to-TB'       , 1./10**12),
+		('bytes-to-terabytes', 1./10**12),
+		('bytes-to-PB'       , 1./10**15),
+		('bytes-to-petabytes', 1./10**15),
+		('bytes-to-EB'       , 1./10**18),
+		('bytes-to-exabytes' , 1./10**18),
+		
+		('bytes-to-KiB'      , 1./2**10),
+		('bytes-to-kibibytes', 1./2**10),
+		('bytes-to-MiB'      , 1./2**20),
+		('bytes-to-mebibytes', 1./2**20),
+		('bytes-to-GiB'      , 1./2**30),
+		('bytes-to-gibibytes', 1./2**30),
+		('bytes-to-TiB'      , 1./2**40),
+		('bytes-to-tebibytes', 1./2**40),
+		('bytes-to-PiB'      , 1./2**50),
+		('bytes-to-pebibytes', 1./2**50),
+		('bytes-to-EiB'      , 1./2**60),
+		('bytes-to-exbibytes', 1./2**60),
+)
+
+extract = False
+breakdown_by_field_number  = None
+breakdown_threshold_percent = -1  #percentage below which entries will be grouped into "OTHER"; default is to not do this
+breakdown_strip_characters = ',()[]{}!;.'  #strip these characters from the ends of the field values when using breakdown_by_field_number
+
+MIN_TIME = 0
+MAX_TIME = 9999999999
+
+
+#--- helper functions
+
+def getAllEDatas():
+	"""return each master edata, followed by its sorted breakdown edatas, if any (i.e. if breakdown_by_field_number is not None)"""
+	global edatas_master, edatas_breakdowns
+	l = []
+	for x in zip(edatas_master, edatas_breakdowns):
+		l.append(x[0])
+
+		#for y in x[1].values():
+		#	l.append(y)
+
+		#l.extend([ t[1] for t in x[1].items() if t[0]!='OTHER'])
+		#if x[1].has_key('OTHER'): l.append(x[1]['OTHER'])
+
+		l.extend(getBreakdownEDatas(x[1]))
+	return l
+	#old order: return edatas_master + sum([d.values() for d in edatas_breakdowns], [])
+def getPlottedEDatas():
+	"""return only the edatas that get plotted (master edatas if breakdown_by_field_number is None, otherwise sorted breakdown edatas)"""
+	global breakdown_by_field_number
+	if breakdown_by_field_number is not None:
+		#return sum([d.values() for d in edatas_breakdowns], [])
+		l = []
+		for d in edatas_breakdowns:
+			#l.extend([ t[1] for t in d.items() if t[0]!='OTHER'])
+			#if d.has_key('OTHER'): l.append(d['OTHER'])
+			l.extend(getBreakdownEDatas(d))
+		return l
+	else:
+		return edatas_master
+def getBreakdownEDatas(d, sort=True):
+	"""return the breakdown edatas sorted by total numerical count/sum/average (greatest to least)
+
+	d should be one of the dictionaries in the edatas_breakdowns list.
+	"""
+	if not sort: return d.values()
+	def mycmp(x, y):
+		#x and y are tuples of (key, edata)
+		#sorted by appropriate edata value, greatest to least, with key 'OTHER' the last)
+		if x[1].stype!=y[1].stype: return 0  #(shouldn't be comparing in the first place, actually)
+
+		if x[0]=='OTHER':
+			if y[0]!='OTHER':
+				return 1
+		if y[0]=='OTHER':
+			return -1
+
+		#note cmp args are opposite "normal", since sorting greatest to least
+		if x[1].stype==COUNT:
+			val = cmp(y[1].all_count  , x[1].all_count)
+		elif x[1].stype==SUM:
+			val = cmp(y[1].all_sum    , x[1].all_sum)
+		elif x[1].stype==AVERAGE:
+			##FIXME -- there is no all_average, what to sort by?
+			#val = cmp(y[1].all_average, x[1].all_average)
+			val = cmp(y[1].all_sum    , x[1].all_sum)
+		if val!=0:
+			return val
+
+		#sort by key name
+		return cmp(x[0], y[0])
+	return [ t[1] for t in sorted(d.items(), mycmp) ]
+
+def rangestr(tstart, tend, linclusive=True, rinclusive=False):
+	"""return a string representing the time range"""
+	#if timestamp parsing fell back on dateutil, this will not be consistent with the log format!
+	global best_chance_format
+
+	if linclusive: lhs = '['
+	else         : lhs = '('
+	if rinclusive: rhs = ']'
+	else         : rhs = ')'
+	return '%s%s, %s%s' % (
+		lhs,
+		time.strftime(best_chance_format.format, time.localtime(tstart)),
+		time.strftime(best_chance_format.format, time.localtime(tend  )),
+		rhs,
+	)
+
+def plotfname(tstart, tend, stype, labels, extra=None):
+	"""return a filename for a plot"""
+	tf = '%y%m%d%H%M%S'
+	fname = '%s-%s.%s.%s' % (
+		time.strftime(tf, time.localtime(tstart)),
+		time.strftime(tf, time.localtime(tend)),
+		stypeStrs[stype].replace(' ','').lower(),
+		','.join(labels).replace(' ','_'),
+	)
+	if extra is not None: fname += '.'+extra
+	fname += '.png'
+	fname = fname.replace('/','_')
+	return fname
+
+def breakdownName(mastername, fldval):
+	if len(edatas_master)==1:
+		return fldval
+	else:
+		return '%s: %s' % (mastername, fldval)
+
+def getTotalValErr(e):
+	if e.stype==COUNT:
+		return e.all_count, None
+	elif e.stype==SUM:
+		return e.all_sum, None
+	elif e.stype==AVERAGE:
+		if e.all_count>0:
+			a = float(e.all_sum)/e.all_count
+			b = math.sqrt(sum([ (x-a)**2 for x in e.all_vals ])/e.all_count)
+		else:
+			a = 0
+			b = 0
+		return a, b
+
+def getTotalStr(e):
+	val, err = getTotalValErr(e)
+	if e.stype in (COUNT, SUM):
+		s = '%g' % val
+	elif e.stype==AVERAGE:
+		s = '%g +/- %g' % (val, err)
+	if units is not None: s += ' %s' % units
+	return s
+
+def line2timeNmsg(line, skipKnownJunk=True):
+	"""convert a log entry to a time (seconds since the epoch) and the rest of the message
+
+	If timestamp parsing falls back on dateutil, the message is not stripped of the timestamp.
+	If skipKnownJunk is True, this'll raise SkipException if none of the formats work and the line appears to be a line I don't care about for plotting (i.e. a hack so I don't have to grep these out in a separate step)
+	"""
+	global timeformats, best_chance_format
+
+	tentry = None
+
+	#first try the explicit known formats (unless --time-nchars was specified indicating preference for dateutil)
+	if trytimeformats:
+		for f in [best_chance_format] + timeformats:
+			try:
+				t = time.strptime(line[:f.length], f.format)
+			except ValueError:
+				continue
+			else:
+				best_chance_format = f
+				#if no year was specified, assume the current year
+				if t.tm_year==1900:
+					l = list(t)
+					l[0] = time.localtime().tm_year
+					t = time.struct_time(l)
+				tentry = time.mktime(t)
+				msg = line[f.length:]
+				break
+
+	#if that didn't work, try using using dateutil, if it's installed
+	if tentry is None:
+		#junk can really mess up fuzzy dateutil parsing
+		if skipKnownJunk:
+			#strace Process messages:
+			if line.startswith('Process ') and (line.find('attached')>0 or line.find('detached')>0): raise SkipException("strace message can be ignored")
+
+		try:
+			import dateutil.parser
+			tentry = int(dateutil.parser.parse(line[:time_nchars], fuzzy=True).strftime('%s'))
+			msg = line  #this is supposed to have the timestamp prefix stripped, but there's no easy way to do that
+		except (ImportError, ValueError):
+			pass
+
+	#otherwise give up
+	if tentry is None:
+		raise ParseException("unable to parse a time from line [%s] -- use the --time-format option (installing the dateutil module might help, too)" % line.strip())
+
+	return tentry, msg
+
+def getEntries():
+	"""iterator to yield tuples of (line, tentry, rest) from input files, collated by time"""
+	global tstart
+	global tend
+
+	global tzero
+	
+	global tbinstart
+	global tlast
+
+	#stucture to hold file iterators and a buffer of most recently popped entry
+	#each list item is itself a two-item list [(line, tentry, rest), iter] (the first of the two may be None)
+	#entries are removed as each file is exhausted
+	iterbuffs = []
+	
+	#load iterbuffs with an interator for each line
+	for filename in filenames:
+		if filename=='-':
+			iterbuffs.append([None, iter(sys.stdin)])
+		else:
+			try:
+				iterbuffs.append([None, iter(open(filename))])
+			except IOError, e:
+				if hasattr(e, 'errno'):
+					sys.stderr.write("*** ERROR *** unable to open input file [%s], error [%d (%s)]\n" % (filename, e.errno, errno.errorcode[e.errno]))
+					sys.exit(1)
+				raise
+	
+	#iterate lines
+	while len(iterbuffs)>0:
+		#indicies of which iters have run out this round
+		toremove = []
+		
+		#time of earliest entry this round (initialize to max so that any actual entry will beat it)
+		tmin = MAX_TIME
+
+		#index of earliest entry this round
+		itmin = None
+
+		#time of last processed entry (may not be the earliest, i.e. may not correspond to next one to yield)
+		tentry = None
+		
+		#fill the buffers and note min tentry seen along the way
+		for i, ib in enumerate(iterbuffs):
+			#reminder: ib is a two-item list where the first item is a two-item tuple or None -- [(tentry, rest), iter] or  [None, iter]
+			if ib[0] is None:
+				try:
+					line = ib[1].next()
+				except StopIteration:
+					toremove.append(i)
+					continue
+				
+				try:
+					tentry, rest = line2timeNmsg(line)
+					ib[0] = (line, tentry, rest)
+				except SkipException:
+					continue
+				except ParseException, e:
+					sys.stderr.write("WARNING: %s\n" % str(e))
+					continue
+
+			line, tentry, rest = ib[0]
+			
+			#handle tentry not in the time region of interest (applies if --tstart and/or --tend were given); intervals are always [start,end)
+			if tentry < tstart:
+				#throw it out
+				ib[0] = None
+			if tentry >= tend:
+				#throw it out
+				ib[0] = None
+				#no need to look at this input any more
+				toremove.append(i)
+			
+			#keep track of the candidate to be yielded next
+			if ib[0] is not None and ib[0][1]<tmin:  #< and not <= so that the first file listed gets precedence
+				tmin = ib[0][1]
+				itmin = i
+
+		if itmin is None:
+			if tentry is not None:
+				#nothing to yield, but only because event was thrown out because it did not fall in the time region of interest
+				continue
+			else:
+				#no more events
+				raise StopIteration()
+		
+		#pop what we will yield
+		line, tentry, rest = iterbuffs[itmin][0]
+		iterbuffs[itmin][0] = None
+		
+		#remove any inputs that have run out (after the above!, which relies on upon consistent indices)
+		toremove.reverse()  #pop from greatest index first
+		for i in toremove:
+			iterbuffs.pop(i)
+			
+		#if this is the very first entry in the time region of interest, set tzero
+		if tzero is None:
+			if tstart!=0:
+				#tstart was given, start the plot there regardless of whether or not there's data around that time
+				tzero = tstart
+			else:
+				#tstart was not given, start the plot at the first data point
+				tzero = tentry
+			tbinstart = tzero
+
+		#note the tentry last seen
+		tlast = tentry
+
+		yield line, tentry, rest
+
+def printHeader(indent=0):
+	"""print out a header with all the event names"""
+	sys.stdout.write(' '*indent)
+	names = ''
+	for e in getAllEDatas():
+		if e.stype==AVERAGE:
+			w = colwidth*2 + 5  #the extra +/- stuff; this is way to wide, but at least readable
+		else:
+			w = colwidth
+		names += '%*s' % (w, e.name)
+	print names
+	sys.stdout.write(' '*indent)
+	print '-'*len(names)
+
+def doRange(tstart, tend, totalRange=False, linclusive=True, rinclusive=False, headers=False):
+	"""process a time range, either the latest bin or the whole range
+
+	If totalRange is False, this reprepresents a bin; print bin stats, save bin counts for later plotting, reset bin counters, etc.
+	If totalRange is True, this represents the whole thing; print overall stats, do not modify anything
+	(This doesn't do any plotting.)
+	"""
+
+	global colwidth
+
+	if totalRange:
+		#recompute the column width now that we know all the headings
+		try:
+			colwidth = max(max([len(e.name) for e in getAllEDatas()])+2, 12)
+		except ValueError:
+			colwidth = 12
+
+	msg = '%s: ' % rangestr(tstart, tend, linclusive, rinclusive)
+
+	if printstuff and headers: printHeader(indent=len(msg))
+
+	for e in getAllEDatas():
+		if e.stype==COUNT:
+			if totalRange:
+				count = e.all_count
+			else:
+				e.counts.append(e.bin_count)
+				count = e.bin_count
+			msg += '%*d' % (colwidth, count)
+		elif e.stype==SUM:
+			if totalRange:
+				s = e.all_sum
+			else:
+				e.counts.append(e.bin_count)
+				e.sums.append(e.bin_sum)
+				s = e.bin_sum
+			if type(s)==int:
+				sumfmt = '%*d'
+			else:
+				sumfmt = '%*g'
+			msg += sumfmt % (colwidth, s)
+		elif e.stype==AVERAGE:
+			if totalRange:
+				if e.all_count>0:
+					a = float(e.all_sum)/e.all_count
+					b = math.sqrt(sum([ (x-a)**2 for x in e.all_vals ])/e.all_count)
+					#a = int(round(a))
+					#b = int(round(b))
+				else:
+					a = 0  #0/0
+					b = 0  #0/0
+			else:
+				e.counts.append(e.bin_count)
+				e.sums.append(e.bin_sum)
+				if e.bin_count>0:
+					a = float(e.bin_sum)/e.bin_count
+					b = math.sqrt(sum([ (x-a)**2 for x in e.bin_vals ])/e.bin_count)
+					#a = int(round(a))
+					#b = int(round(b))
+				else:
+					a = 0  #0/0
+					b = 0  #0/0
+				e.averages.append(a)
+				e.stddevs.append(b)
+			msg += '%*g +/- %-*g' % (colwidth, a, colwidth, b)
+
+		if not totalRange:
+			if not cumulative:
+				#reset bin counters, ready to track the next bin
+				e.bin_count = 0
+				if type(e.bin_sum)==float:
+					e.bin_sum = 0.0
+				else:
+					e.bin_sum = 0
+				e.bin_vals  = []
+
+	if printstuff: print msg
+
+
+#--- option/argument initialization and command line parsing
+
+def _addEventData(nameNregex, stype):
+	"""this is just a helper for the options parsing, and will actually exit if there is an error"""
+	global edatas_master, edatas_breakdowns
+
+	try:
+		name, regex = [ x.strip() for x in optarg.split(':', 1)]
+	except ValueError:
+		sys.stderr.write("*** ERROR *** invalid event specification [%s]\n" % optarg)
+		sys.exit(1)
+
+	if stype in (SUM, AVERAGE) and regex.find('(')<0:
+		sys.stderr.write("*** ERROR *** invalid event regular expression [%s] -- regexs for sums and averages must have a group that matches just the value\n" % regex)
+		sys.exit(1)
+
+	try:
+		regexc = re.compile(regex)
+	except Exception:
+		sys.stderr.write("*** ERROR *** invalid event regular expression [%s]\n" % regex)
+		sys.exit(1)
+	edatas_master.append(EventData(stype, name, regexc))
+	edatas_breakdowns.append({})  #(will only be populated if breakdown_by_field_number is not None)
+
+try:
+	opts, args = getopt.gnu_getopt(sys.argv[1:], 'c:s:a:t:h', ['count=','sum=','average=','interval=','tstart=','tend=','show-plots','save-plots','cumulative','totals-also','totals-only','totals-in-legend','totals-in-title','bar-charts','units=','ylabel=','units-conversion-factor=','print-units-conversion-factors','title=','legend-on','legend-off','no-legend','legend-location=','no-headers','time-format=','time-nchars=','print-time-formats','extract','breakdown-by-field-number=','breakdown-threshold-percent=','ymin=','ymax=','error-bars-on','error-bars-off','help'])
+except getopt.GetoptError, e:
+	sys.stderr.write("*** ERROR *** %s\n" % e)
+	sys.exit(1)
+for opt, optarg in opts:
+	if   opt in ('-c', '--count'):
+		_addEventData(optarg, COUNT)
+	elif opt in ('-s', '--sum'):
+		_addEventData(optarg, SUM)
+	elif opt in ('-a', '--average'):
+		_addEventData(optarg, AVERAGE)
+
+	elif opt in ('-t', '--interval'):
+		if   optarg.startswith('minute'): tbin = 60
+		elif optarg.startswith('hour'  ): tbin = 60*60
+		elif optarg.startswith('day'   ): tbin = 60*60*24
+		elif optarg.startswith('week'  ): tbin = 60*60*24*7
+		elif optarg.startswith('month' ): tbin = 60*60*24*30.4368499
+		elif optarg.startswith('year'  ): tbin = 60*60*24*365.242199
+		else:
+			try:
+				tbin = int(optarg)
+			except ValueError:
+				sys.stderr.write("*** ERROR *** invalid time bin width [%s]\n" % optarg)
+				sys.exit(1)
+	elif opt=='--tstart':
+		if optarg!='':  #hack that makes scripting this easier
+			tstartstr = optarg  #parse it later, after all format options are decided
+	elif opt=='--tend':
+		if optarg!='':  #hack that makes scripting this easier
+			tendstr = optarg
+
+	elif opt=='--totals-also':
+		do_totals = True
+	elif opt=='--totals-only':
+		do_bins = False
+		do_totals = True
+	elif opt=='--cumulative':
+		cumulative = True
+	elif opt=='--totals-in-legend':
+		totals_in_legend = True
+	elif opt=='--totals-in-title':
+		totals_in_title = True
+
+	elif opt=='--show-plots':
+		show_plots = True
+	elif opt=='--save-plots':
+		save_plots = True
+	elif opt=='--bar-charts':
+		bar_charts = True
+	elif opt=='--units':
+		units = optarg
+	elif opt=='--ylabel':
+		units = optarg
+	elif opt=='--units-conversion-factor':
+		for s, v in unitsconversionfactors:
+			if optarg==s:
+				units_conversion_factor = v
+				break
+		if units_conversion_factor is None:
+			try:
+				units_conversion_factor = int(optarg)
+			except ValueError:
+				try:
+					units_conversion_factor = float(optarg)
+				except ValueError:
+					sys.stderr.write("*** ERROR *** invalid units conversion factor [%s]\n" % optarg)
+					sys.exit(1)
+	elif opt=='--print-units-conversion-factors':
+		for s, v in unitsconversionfactors:
+			print '%s = %s' % (s, v)
+		sys.exit(0)
+	elif opt=='--title':
+		title = optarg.replace(r'\n', '\n')
+	elif opt=='--legend-on':
+		legend_on = True
+	elif opt=='--legend-off':
+		legend_off = True
+	elif opt=='--no-legend':
+		legend_off = True
+	elif opt=='--legend-location':
+		legend_location = optarg
+		try:
+			legend_location = int(legend_location)
+		except ValueError:
+			pass
+			#(assume it's one of the valid string names for the integer codes)
+		if legend_location=='left': legend_location='upper left'  #why does matplotlib have 'right' but not 'left'?
+
+	elif opt=='--no-headers':
+		headers = False
+
+	elif opt=='--time-format':
+		timeformats.insert(0, TimeFormat(optarg))  #add it as the first one so it has the highest precendence
+	elif opt=='--time-nchars':
+		try:
+			time_nchars = int(optarg)
+		except ValueError:
+			sys.stderr.write("*** ERROR *** invalid integer [%s] for --time-nchars\n" % optarg)
+			sys.exit(1)
+		trytimeformats = False
+	elif opt=='--print-time-formats':
+		print "Formats this script tries (before falling back on the dateutil module, if installed):"
+		print
+		for f in timeformats:
+			print f.format
+		print
+		print "From http://docs.python.org/library/time.html#time.strftime:"
+		print
+		print """\
+%a	Locale's abbreviated weekday name.
+%A	Locale's full weekday name.
+%b	Locale's abbreviated month name.
+%B	Locale's full month name.
+%c	Locale's appropriate date and time representation.
+%d	Day of the month as a decimal number [01,31].
+%H	Hour (24-hour clock) as a decimal number [00,23].
+%I	Hour (12-hour clock) as a decimal number [01,12].
+%j	Day of the year as a decimal number [001,366].
+%m	Month as a decimal number [01,12].
+%M	Minute as a decimal number [00,59].
+%p	Locale's equivalent of either AM or PM.
+%S	Second as a decimal number [00,61].
+%U	Week number of the year (Sunday as the first day of the week) as a decimal number [00,53].
+%w	Weekday as a decimal number [0(Sunday),6].
+%W	Week number of the year (Monday as the first day of the week) as a decimal number [00,53].
+%x	Locale's appropriate date representation.
+%X	Locale's appropriate time representation.
+%y	Year without century as a decimal number [00,99].
+%Y	Year with century as a decimal number.
+%Z	Time zone name (no characters if no time zone exists).
+%%	A literal '%' character."""
+		sys.exit(0)
+
+	elif opt=='--extract':
+		extract = True
+
+	elif opt=='--breakdown-by-field-number':
+		try:
+			breakdown_by_field_number = int(optarg)
+		except ValueError:
+			sys.stderr.write("*** ERROR *** invalid value [%s] for --breakdown-by-field-number\n" % optarg)
+			sys.exit(1)
+	elif opt=='--breakdown-threshold-percent':
+		try:
+			if '.' in optarg:
+				breakdown_threshold_percent = float(optarg)
+			else:
+				breakdown_threshold_percent = int(optarg)
+		except ValueError:
+			sys.stderr.write("*** ERROR *** invalid value [%s] for --breakdown-threshold-percent\n" % optarg)
+			sys.exit(1)
+
+	elif opt=='--ymin':
+		try:
+			ymin = float(optarg)
+		except ValueError:
+			sys.stderr.write("*** ERROR *** invalid value [%s] for --ymin\n" % optarg)
+			sys.exit(1)
+
+	elif opt=='--ymax':
+		try:
+			ymax = float(optarg)
+		except ValueError:
+			sys.stderr.write("*** ERROR *** invalid value [%s] for --ymax\n" % optarg)
+			sys.exit(1)
+
+	elif opt=='--error-bars-on':
+		if error_bars_off:
+			sys.stderr.write("*** ERROR *** cannot specify both --error-bars-on and -error-bars-off\n")
+			sys.exit(1)
+		error_bars_on = True
+	elif opt=='--error-bars-off':
+		if error_bars_on:
+			sys.stderr.write("*** ERROR *** cannot specify both --error-bars-on and -error-bars-off\n")
+			sys.exit(1)
+		error_bars_off = True
+
+	elif opt in ('-h', '--help'):
+		print __doc__
+		sys.exit(0)
+
+filenames = args
+if len(filenames)==0:
+	filenames.append('-')  #(meaning stdin)
+	if sys.stdin.isatty():
+		sys.stderr.write("--- waiting for input from stdin ---\n")  #(usually not what's really intended, so give some feedback instead of just hanging)
+
+#note the length of a time formatted in each respective format
+for f in timeformats: f.length = len(time.strftime(f.format))
+
+#the best format choice (the last one that worked) is saved, to try first next time, for efficiency (initialize to the first format, since that's the last user-provided one, if given)
+best_chance_format = timeformats[0]
+
+#compute the column width for text output
+#unfortunately, if breakdown_by_field_number is not None, colwidth will be off, since we don't yet know the names
+try:
+	colwidth = max(max([len(e.name) for e in edatas_master])+2, 12)
+except ValueError:
+	colwidth = None  #(this will never be used but I still like to have it in the namespace)
+
+plots = show_plots or save_plots
+
+if plots:
+	try:
+		import matplotlib as mpl
+		import matplotlib.pyplot as plt
+		import matplotlib.dates as mdates
+		import numpy as np
+		import pytz
+	except ImportError:
+		msg = "*** ERROR *** matplotlib is needed for plotting"
+		if socket.gethostname().endswith('.rc.fas.harvard.edu'): msg += " (module load hpc/python-2.6.2)"
+		sys.stderr.write(msg+'\n')
+		sys.exit(1)
+
+printstuff = not extract  #don't want to mix in messages to stdout if it's being used for extracted lines
+
+if breakdown_threshold_percent>0:
+	for e in edatas_master:
+		if e.stype==AVERAGE:
+			sys.stderr.write("*** ERROR *** --breakdown-threshold-percent not yet supported for statistics of type `average'\n")
+			sys.exit(1)
+
+#parse the --tstart, if given
+if tstartstr is not None:
+	try:
+		tstart = line2timeNmsg(tstartstr)[0]
+	except ParseException:
+		sys.stderr.write("*** ERROR *** invalid --tstart [%s]\n" % tstartstr)
+		sys.exit(1)
+	if int(round(tstart))==MIN_TIME:
+		sys.stderr.write("*** ERROR *** due to internal reasons, --tstart [%s] cannot be the minimum possible time\n" % tstartstr)
+		sys.exit(1)
+
+else:
+	tstart = MIN_TIME
+
+#parse the --tend, if given
+if tendstr is not None:
+	try:
+		tend = line2timeNmsg(tendstr)[0]
+	except ParseException:
+		sys.stderr.write("*** ERROR *** invalid --tend [%s]\n" % tendstr)
+		sys.exit(1)
+	if int(round(tend))==MAX_TIME:
+		sys.stderr.write("*** ERROR *** due to internal reasons, --tend [%s] cannot be the maximum possible time\n" % tendstr)
+		sys.exit(1)
+else:
+	tend = MAX_TIME
+
+if tend<=tstart:
+	sys.stderr.write("*** ERROR *** --tend does not come after --tstart\n")
+	sys.exit(1)
+
+if plots:
+	#matplotlib forces me to be painfully aware of the timezone (I can't figure out how have it print dates without the timezone in them)
+	#hack this to assume we're in US/Eastern (user can override this by putting something other than UTC in the matplotlibrc file
+	if mpl.rcParams['timezone']=='UTC': mpl.rcParams['timezone'] = 'US/Eastern'  #the default is 'UTC' (even if no timezone is specified in the rc file)
+	tz = pytz.timezone(mpl.rcParams['timezone'])
+
+
+if __name__=='__main__':
+	try:
+		#---process all the log entries
+
+		for line, tentry, rest in getEntries():
+			if len(edatas_master)>0:
+				#(the following code block is exactly duplicated below, keep it in sync)
+				if do_bins:
+					#if appropriate, handle the bin (and any empty ones leading up to it, if tlast jumped ahead a lot)
+					while tlast - tbinstart >= tbin:  #if it == tbin, that means tlast landed right on the start of the next bin and we can process the current bin
+						##if plots: taxisvals.append(datetime.datetime.fromtimestamp(round(tbinstart + float(tbin)/2), tz))
+						#if plots: taxisvals.append(datetime.datetime.fromtimestamp(tbinstart, tz))
+						doRange(tbinstart, tbinstart+tbin, headers=(tbinstart==tzero and headers))  #only print headers if this is the first bin, and only if headers are even desired in general
+						tbinstart += tbin
+
+				for i, emaster in enumerate(edatas_master):
+					m = emaster.regex.search(rest)
+					if m is not None:
+						if extract: sys.stdout.write(line)
+
+						es = [emaster]
+
+						if breakdown_by_field_number is not None:
+							fldval = line.split(None,breakdown_by_field_number)[breakdown_by_field_number-1]
+							fldval = fldval.strip(breakdown_strip_characters)
+							try:
+								ebreakdown = edatas_breakdowns[i][fldval]
+							except KeyError:
+								ebreakdown = emaster.emptyClone(breakdownName(emaster.name,fldval))
+								edatas_breakdowns[i][fldval] = ebreakdown
+							es.append(ebreakdown)
+
+						for e in es:
+							e.bin_count += 1
+							e.all_count += 1
+						if emaster.stype in (SUM, AVERAGE):
+							try:
+								valstr = m.group(1)
+							except IndexError:
+								raise ParseException("unable to parse a value for [%s] in line [%s]: no such regex group" % (emaster.name, line.strip()))
+							else:
+								try:
+									if '.' in valstr:
+										val = float(valstr)
+									else:
+										val = int(valstr)
+									if units_conversion_factor is not None:
+										val = units_conversion_factor*val
+								except ValueError:
+									raise ParseException("unable to parse a value for [%s] in line [%s]: invalid numeric value [%s]" % (emaster.name, line.strip(), s))
+								else:
+									for e in es:
+										e.bin_sum += val
+										e.all_sum += val
+									if emaster.stype==AVERAGE:
+										for e in es:
+											e.all_vals.append(val)
+											e.bin_vals.append(val)
+
+			else:
+				if extract: sys.stdout.write(line)
+
+		#if tzero is still None, we never found any matching log entries, and we have nothing to do (and the code below this point will fail)
+		if tzero is None: sys.exit()
+
+		#tlast and tbinstart are now guaranteed to be set
+		
+		#if tend was given, fill in empty bins between the last entry seen and this tend value, if necessary
+		if tend!=MAX_TIME and tlast<tend:
+			tlast = tend
+			#(the following code block is exactly duplicated above, keep it in sync)
+			if do_bins:
+				#handle the bin (and any empty ones leading up to it, if tlast jumped ahead a lot), if appropriate
+				while tlast - tbinstart >= tbin:  #if == tbin, that means tlast landed right on the start of the next bin and we can process the current bin
+					##if plots: taxisvals.append(datetime.datetime.fromtimestamp(round(tbinstart + float(tbin)/2), tz))
+					#if plots: taxisvals.append(datetime.datetime.fromtimestamp(tbinstart, tz))
+					doRange(tbinstart, tbinstart+tbin, headers=(tbinstart==tzero and headers))  #only print headers if this is the first bin, and only if we even want headers in general
+					tbinstart += tbin
+		
+		if allow_incomplete_bin:
+			#handle any trailing, partially filled bin by making a smaller bin
+			if tlast>=tbinstart:
+				if do_bins:
+					##if plots: taxisvals.append(datetime.datetime.fromtimestamp(round(tbinstart + float(tlast-tbinstart)/2), tz))
+					#if plots: taxisvals.append(datetime.datetime.fromtimestamp(tbinstart, tz))
+					doRange(tbinstart, tlast, headers=(tbinstart==tzero and headers))
+		else:
+			raise NotImplementedError("allow_incomplete_bin cannot be False")
+
+
+		#--- consolidate small entries as "OTHER", if applicable (--breakdown-by-field-number given) and desired (--breakdown-threshold-percent given)
+
+		if breakdown_by_field_number and breakdown_threshold_percent>0:
+			for i, emaster in enumerate(edatas_master):
+				eother = emaster.emptyClone(breakdownName(emaster.name,'OTHER'))
+				d = edatas_breakdowns[i]
+				for name in d.keys():
+					e = d[name]
+					if e.stype==COUNT and float(e.all_count) / emaster.all_count < breakdown_threshold_percent/100.:
+						eother.add(e)
+						d.pop(name)
+					if e.stype==SUM   and float(e.all_sum)   / emaster.all_sum   < breakdown_threshold_percent/100.:
+						eother.add(e)
+						d.pop(name)
+				if eother.all_count>=0:
+					edatas_breakdowns[i]['OTHER'] = eother
+
+
+		#--- do the plotting and/or printing of the final stats
+		
+		addlegend = ( len(getPlottedEDatas())>1 and not legend_off ) or legend_on
+
+		if do_bins:
+			if plots:
+				#make a time series plot for each stat type
+				#each stat type is in a different figure
+				for stype in (COUNT, SUM, AVERAGE):
+					gotone = False
+
+					adderrbars = ( len([ e for e in edatas_master if e.stype==AVERAGE])==1 and not error_bars_off ) or error_bars_on  #error bars are often more confusing than helpful on plots with overlayed values
+
+					negative_ymin = False  #whether or not any negative values are being plotted, for the hack regarding negative ymin
+					
+					#stacked = True
+					
+					#search all events for the stat type we're working on
+					for eindex, e in enumerate(getPlottedEDatas()):
+						#print
+						#print
+						#print "--- working on", e.name
+						if e.stype==stype:
+							if e.stype==COUNT:
+								vals = e.counts
+							elif e.stype==SUM:
+								vals = e.sums
+							elif e.stype==AVERAGE:
+								vals = e.averages
+
+							#hack regarding negative ymin
+							for x in vals:
+								if x<0:
+									negative_ymin = True
+									break
+							
+							#print "vals start :", vals
+							#if stacked:
+							#	vals = copy.copy(vals)
+							#	#raise these values up by all the other stats that'll come later and stack (overlay  under the stack
+							#	for eaddon in getPlottedEDatas()[:eindex]:
+							#		if eaddon.stype==e.stype:
+							#			vals2 = eaddon.counts
+							#		elif eaddon.stype==e.stype:
+							#			vals2 = eaddon.sums
+							#		elif eaddon.stype==e.stype:
+							#			vals2 = eaddon.averages
+							#		else:
+							#			continue  #(should never get here)
+							#		#print "adding in", eaddon.name
+							#		#print "vals before:", vals
+							#		#print "adding     :", vals2
+							#		vals = [ sum(x) for x in zip(vals, vals2) ]
+							#		#print "vals after :", vals
+							#		#print "."
+
+							label = e.name
+							if totals_in_legend:
+								label += ' (%s)' % getTotalStr(e)
+							
+							if not gotone:
+								gotone = True
+								#if this is the first one of this stat type, create a new figure for it
+								fig = plt.figure(figsize=(10,5))
+								ax = fig.gca()
+							
+							#create all the time axis points (LHS of each bin)
+							taxisvals = [ datetime.datetime.fromtimestamp(tzero + x*tbin, tz) for x in xrange(len(vals)) ]
+
+							if allow_incomplete_bin:
+								#need to drop in a (tlast, 0) point so that the last bin value is extended over some range (otherwise it's plotted on the RHS edge)
+								#this will also nicely truncate that trailing bin if it's width is smaller than the rest
+								taxisvals.append(datetime.datetime.fromtimestamp(tlast, tz))
+								vals.append(0)
+							else:
+								raise NotImplementedError("allow_incomplete_bin cannot be False")
+							
+							dates = mdates.date2num(taxisvals)
+
+							#plot the time series data for this event type on the master figure for this stat type
+							ax.plot_date(dates, vals, '-', drawstyle='steps-post', label=label)  #date is the start of the bin, we want the val to extend to the right across the bin, steps-post does that
+							
+							#fill below the plot, histogram style, if there's only one thing plotted and appropriate
+							if (len(getPlottedEDatas())==1 and getPlottedEDatas()[0].stype in (COUNT, SUM)):
+								for i in range(len(dates)-1): ax.fill_between((dates[i], dates[i+1]), vals[i])
+							
+							if addlegend: ax.legend(loc=legend_location)  #do this *before* hacking on the error bars (we only adderrbars if there's just one event)
+							
+							#add error bars if appropriate (by drawing all three lines associated with each bin by hand)
+							if adderrbars and e.stype==AVERAGE:
+								##start, end = ax.get_xaxis().get_data_interval().tolist()
+								##width = (end - start)/len(dates)
+								#	
+								##maybe a different line style would center the original heights around the x-axis values instead of them being to the left of them; in the meantime, shift these errors bars accordingly
+								#datesshifted = dates + 0.5*width
+								#
+								##uppers
+								#errs = [ val+err for val, err in zip(vals, e.stddevs+[0]) ]
+								#ax.vlines(datesshifted, vals, errs, label='_nolabel_')
+								#ax.hlines(errs, datesshifted - 0.25*width, datesshifted + 0.25*width, label='_nolabel_')
+								#ax.set_label('_nolabel_')
+								#
+								##lowers
+								#errs = [ val-err for val, err in zip(vals, e.stddevs+[0]) ]
+								#ax.vlines(datesshifted, vals, errs, label='_nolabel_')
+								#ax.hlines(errs, datesshifted - 0.25*width, datesshifted + 0.25*width, label='_nolabel_')
+								#ax.set_label('_nolabel_')
+								#
+								##add the y==0 line, too, since err bars can go negative and it looks weird if everything is ungrounded by an axis
+								#ax.axhline(y=0, color='k')
+
+								errwidth = 0.5  #width of error bar caps as fraction of bin width
+
+								errdates = []
+								ytops    = []
+								ybottoms = []
+								xlefts   = []
+								xrights  = []
+								for i in range(len(dates)-1):
+									binwidth = dates[i]-dates[i+1]
+									errdate = (dates[i]+dates[i+1])/2  #midpoint of bin
+									val = vals[i]
+									try:
+										err = e.stddevs[i]
+									except IndexError:
+										#vals and dates have that last bin RHS point tacked on; event counters do not
+										assert(i==len(e.stddevs))
+										err = 0
+									
+									errdates.append(errdate)
+									ytops.append(val+err)
+									ybottoms.append(val-err)
+									xlefts.append(errdate - errwidth*0.5*binwidth)
+									xrights.append(errdate + errwidth*0.5*binwidth)
+								
+								#hack regarding negative ymin
+								for x in ybottoms:
+									if x<0:
+										negative_ymin = True
+										break
+
+								ax.vlines(errdates, ybottoms, ytops, label='_nolabel_')
+								ax.hlines(ytops   , xlefts, xrights, label='_nolabel_')
+								ax.hlines(ybottoms, xlefts, xrights, label='_nolabel_')
+							
+					#identifiers used in output filenames (if applicable)
+					names = []
+					for e in edatas_master:
+						if e.stype==stype:
+							names.append(e.name)
+					
+					#if we got any events of this stat type, put the final touches on the master figure for the stat type
+					if gotone:
+						if title is None:
+							#construct a title
+							for chunk, unitstr in (
+								(60*60*24*7, 'Week'  ),
+								(60*60*24  , 'Day'   ),
+								(60*60     , 'Hour'  ),
+								(60        , 'Minute'),
+								(1         , 'Second'),
+							):
+								if tbin%chunk==0:
+									x = tbin/chunk
+									if x>1:
+										unitstr += 's'
+										binstr = '%s %s' % (x, unitstr)
+									else:
+										binstr = unitstr
+									break
+							##I feel like this is more correct, but in practice it's not very nice
+							#rstr = rangestr(tzero, tzero+len(taxisvals)*tbin, linclusive=True, rinclusive=False)
+							rstr = '%s - %s' % (
+								time.strftime(best_chance_format.format, time.localtime(tzero)),
+								time.strftime(best_chance_format.format, time.localtime(tlast)),
+							)
+							if cumulative:
+								titletmp = "Cumulative %s" % stypeStrs[stype]
+							else:
+								titletmp = "%s per %s" % (stypeStrs[stype], binstr)
+							if len(edatas_master)==1:
+								titletmp = "%s, %s" % (edatas_master[0].name, titletmp)
+							if totals_in_title and len(edatas_master)==1:
+								e = edatas_master[0]
+								if e.stype==AVERAGE:
+									word = 'Average'
+								else:
+									word = 'Total'
+								sep = ', '
+								#sep = '\n'
+								titletmp += "%s%s %s" % (sep, getTotalStr(e), word)
+							titletmp += "\n%s" % rstr
+							fig.suptitle(titletmp)
+						else:
+							titletmp = title
+							if totals_in_title and len(edatas_master)==1:
+								e = edatas_master[0]
+								if e.stype==AVERAGE:
+									word = 'Average'
+								else:
+									word = 'Total'
+								sep = ', '
+								#sep = '\n'
+								titletmp += "%s%s %s" % (sep, getTotalStr(e), word)
+							fig.suptitle(titletmp)
+						
+						#add y-axis units
+						if units is not None: ax.set_ylabel(units)
+
+						rymin, rymax = ax.set_ylim((ymin, ymax))
+						
+						#hack regarding negative ymin
+						#sometimes there are no negative values yet the y axis goes negative, and it looks bad
+						#detect that and reset ymin to zero
+						if rymin<0 and not negative_ymin:
+							rymin, rymax = ax.set_ylim((0, ymax))
+
+						#rotate date labels so that they don't overlap
+						fig.autofmt_xdate(rotation=45)
+						
+						#save it to a file, if applicable
+						if save_plots:
+							extra = 'time_series_%ds' % tbin
+							if cumulative: extra += '_cumulative'
+							if breakdown_by_field_number:
+								extra = 'breakdown%d.%s' % (breakdown_by_field_number, extra)
+							fname = plotfname(tzero, tlast, stype, names, extra)
+							
+							#it seems that if there's an explicity ymax, the 'tight' bbox cuts things off
+							if ymax is not None:
+								fig.savefig(fname)
+							else:
+								fig.savefig(fname, bbox_inches='tight', pad_inches=0.35)
+							
+							if printstuff:
+								print
+								print "plot saved as:", fname
+
+		if do_totals:
+			#if applicable, separate the following output from the bin breakdown above it with a blank line
+			if printstuff and do_bins: print
+
+			doRange(tzero, tlast, totalRange=True, linclusive=True, rinclusive=True, headers=headers)
+
+			if plots:
+				vals = {}
+				errs = {}  #only used for stype==AVERAGE bar charts
+				labels = {}
+
+				for stype in (COUNT, SUM, AVERAGE):
+					gotone = False
+					
+					#search all events for the stat type we're working on (just save the numbers as opposed to making any figures, since, unlike the time series figures, there is only one plot on the master figure for each stat type)
+					for e in getPlottedEDatas():
+						if e.stype==stype:
+							if not gotone:
+								gotone = True
+								vals[stype] = []
+								errs[stype] = []
+								labels[stype] = []
+							val, err = getTotalValErr(e)
+							vals[stype].append(val)
+							errs[stype].append(err)
+							labels[stype].append(e.name)
+							
+					#identifiers used in output filenames (if applicable)
+					names = []
+					for e in edatas_master:
+						if e.stype==stype:
+							names.append(e.name)
+					
+					#if we got any events of this stat type, create the figure and plot either a bar chart or pie chart
+					if gotone:
+						fig = plt.figure(figsize=(7,7))
+						ax = fig.gca()
+						
+						rstr = '%s - %s' % (
+							time.strftime(best_chance_format.format, time.localtime(tzero)),
+							time.strftime(best_chance_format.format, time.localtime(tlast)),
+						)
+
+						if bar_charts:
+							n = len(vals[stype])
+							width = 0.5
+							xcoord = np.arange(n)
+							if stype==AVERAGE:
+								yerr = errs[stype]
+							else:
+								yerr = None
+							ax.bar(xcoord, vals[stype], width, yerr=yerr, ecolor='k', align='center', bottom=0)
+							ax.axhline(y=0, color='k')
+							
+							if units is not None and stype in (SUM, AVERAGE): ax.set_ylabel(units)
+							plt.xticks(xcoord, [ l.replace(' ','\n') for l in labels[stype]])  #(I don't know how do this this using the explicit fig or ax object)
+							if title is None:
+								fig.suptitle('%s, %s' % (stypeStrs[stype], rstr))  #if I put a newline in this like the other plots, it overwrites the, e.g., 1e12 units at the top of the y-axis
+							else:
+								fig.suptitle(title)
+							
+							ax.set_ylim((ymin, ymax))
+						else:  #(pie charts)
+							for i in range(len(labels[stype])):
+								#valstr = str(int(round(vals[stype][i])))
+								if totals_in_legend:
+									valstr = '%g' % vals[stype][i]
+									if units is not None and stype in (SUM, AVERAGE): valstr += ' ' + units
+									labels[stype][i] = '%s (%s)' % (labels[stype][i], valstr)
+							ax.pie(vals[stype], labels=labels[stype], autopct='%1.0f%%')
+							if addlegend: ax.legend(loc=legend_location)
+							if title is None:
+								titletmp = stypeStrs[stype]
+								if len(edatas_master)==1:
+									titletmp = "%s, %s" % (edatas_master[0].name, titletmp)
+								if totals_in_title and len(edatas_master)==1:
+									e = edatas_master[0]
+									if e.stype==AVERAGE:
+										word = 'Average'
+									else:
+										word = 'Total'
+									#sep = ', '
+									sep = '\n'
+									titletmp += "%s%s %s" % (sep, getTotalStr(e), word)
+								titletmp += "\n%s" % rstr
+								fig.suptitle(titletmp)
+							else:
+								titletmp = title
+								if totals_in_title and len(edatas_master)==1:
+									e = edatas_master[0]
+									if e.stype==AVERAGE:
+										word = 'Average'
+									else:
+										word = 'Total'
+									#sep = ', '
+									sep = '\n'
+									titletmp += "%s%s %s" % (sep, getTotalStr(e), word)
+								fig.suptitle(titletmp)
+						
+						#save it to a file, if applicable
+						if save_plots:
+							extra = 'total'
+							if breakdown_by_field_number:
+								extra = 'breakdown%d.%s' % (breakdown_by_field_number, extra)
+							fname = plotfname(tzero, tlast, stype, names, extra)
+							fig.savefig(fname)
+							if printstuff:
+								print
+								print "plot saved as:", fname
+		
+		if show_plots: plt.show()
+	except IOError, e:
+		if not (hasattr(e, 'errno') and e.errno==errno.EPIPE): raise
+	except Exception:
+		raise
+	except BaseException: #KeyboardInterrupt, etc
+		pass
