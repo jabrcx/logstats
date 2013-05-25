@@ -220,11 +220,15 @@ OPTIONS
 
     -h, --help
         Print this help.
-    
+
     (The deprecated options --ylabel and --no-legend have been replaced by 
     --units and --legend-off, respectively.)
 
 EXAMPLES
+    See the following for a full write-up and detailed examples:
+
+        http://jabrcx.github.io/logstats
+
     Plot 5-second averages of a value that changes randomly every second (takes 60 seconds to run):
         ( for i in {1..60}; do echo $(date) $RANDOM; sleep 1; done ) | logstats -a 'x: (\d+)' -t 5 --show-plots
 
@@ -409,7 +413,7 @@ unitsconversionfactors = (
 		('bytes-to-petabytes', 1./10**15),
 		('bytes-to-EB'       , 1./10**18),
 		('bytes-to-exabytes' , 1./10**18),
-		
+
 		('bytes-to-KiB'      , 1./2**10),
 		('bytes-to-kibibytes', 1./2**10),
 		('bytes-to-MiB'      , 1./2**20),
@@ -610,7 +614,7 @@ def getEntries():
 	global tend
 
 	global tzero
-	
+
 	global tbinstart
 	global tlast
 
@@ -618,7 +622,7 @@ def getEntries():
 	#each list item is itself a two-item list [(line, tentry, rest), iter] (the first of the two may be None)
 	#entries are removed as each file is exhausted
 	iterbuffs = []
-	
+
 	#load iterbuffs with an interator for each line
 	for filename in filenames:
 		if filename=='-':
@@ -631,12 +635,12 @@ def getEntries():
 					sys.stderr.write("*** ERROR *** unable to open input file [%s], error [%d (%s)]\n" % (filename, e.errno, errno.errorcode[e.errno]))
 					sys.exit(1)
 				raise
-	
+
 	#iterate lines
 	while len(iterbuffs)>0:
 		#indicies of which iters have run out this round
 		toremove = []
-		
+
 		#time of earliest entry this round (initialize to max so that any actual entry will beat it)
 		tmin = MAX_TIME
 
@@ -645,7 +649,7 @@ def getEntries():
 
 		#time of last processed entry (may not be the earliest, i.e. may not correspond to next one to yield)
 		tentry = None
-		
+
 		#fill the buffers and note min tentry seen along the way
 		for i, ib in enumerate(iterbuffs):
 			#reminder: ib is a two-item list where the first item is a two-item tuple or None -- [(tentry, rest), iter] or  [None, iter]
@@ -655,7 +659,7 @@ def getEntries():
 				except StopIteration:
 					toremove.append(i)
 					continue
-				
+
 				try:
 					tentry, rest = line2timeNmsg(line)
 					ib[0] = (line, tentry, rest)
@@ -666,7 +670,7 @@ def getEntries():
 					continue
 
 			line, tentry, rest = ib[0]
-			
+
 			#handle tentry not in the time region of interest (applies if --tstart and/or --tend were given); intervals are always [start,end)
 			if tentry < tstart:
 				#throw it out
@@ -676,7 +680,7 @@ def getEntries():
 				ib[0] = None
 				#no need to look at this input any more
 				toremove.append(i)
-			
+
 			#keep track of the candidate to be yielded next
 			if ib[0] is not None and ib[0][1]<tmin:  #< and not <= so that the first file listed gets precedence
 				tmin = ib[0][1]
@@ -689,16 +693,16 @@ def getEntries():
 			else:
 				#no more events
 				raise StopIteration()
-		
+
 		#pop what we will yield
 		line, tentry, rest = iterbuffs[itmin][0]
 		iterbuffs[itmin][0] = None
-		
+
 		#remove any inputs that have run out (after the above!, which relies on upon consistent indices)
 		toremove.reverse()  #pop from greatest index first
 		for i in toremove:
 			iterbuffs.pop(i)
-			
+
 		#if this is the very first entry in the time region of interest, set tzero
 		if tzero is None:
 			if tstart!=0:
@@ -1160,7 +1164,7 @@ if __name__=='__main__':
 		if tzero is None: sys.exit()
 
 		#tlast and tbinstart are now guaranteed to be set
-		
+
 		#if tend was given, fill in empty bins between the last entry seen and this tend value, if necessary
 		if tend!=MAX_TIME and tlast<tend:
 			tlast = tend
@@ -1172,7 +1176,7 @@ if __name__=='__main__':
 					#if plots: taxisvals.append(datetime.datetime.fromtimestamp(tbinstart, tz))
 					doRange(tbinstart, tbinstart+tbin, headers=(tbinstart==tzero and headers))  #only print headers if this is the first bin, and only if we even want headers in general
 					tbinstart += tbin
-		
+
 		if allow_incomplete_bin:
 			#handle any trailing, partially filled bin by making a smaller bin
 			if tlast>=tbinstart:
@@ -1203,7 +1207,7 @@ if __name__=='__main__':
 
 
 		#--- do the plotting and/or printing of the final stats
-		
+
 		addlegend = ( len(getPlottedEDatas())>1 and not legend_off ) or legend_on
 
 		if do_bins:
@@ -1216,9 +1220,9 @@ if __name__=='__main__':
 					adderrbars = ( len([ e for e in edatas_master if e.stype==AVERAGE])==1 and not error_bars_off ) or error_bars_on  #error bars are often more confusing than helpful on plots with overlayed values
 
 					negative_ymin = False  #whether or not any negative values are being plotted, for the hack regarding negative ymin
-					
+
 					#stacked = True
-					
+
 					#search all events for the stat type we're working on
 					for eindex, e in enumerate(getPlottedEDatas()):
 						#print
@@ -1237,7 +1241,7 @@ if __name__=='__main__':
 								if x<0:
 									negative_ymin = True
 									break
-							
+
 							#print "vals start :", vals
 							#if stacked:
 							#	vals = copy.copy(vals)
@@ -1261,13 +1265,13 @@ if __name__=='__main__':
 							label = e.name
 							if totals_in_legend:
 								label += ' (%s)' % getTotalStr(e)
-							
+
 							if not gotone:
 								gotone = True
 								#if this is the first one of this stat type, create a new figure for it
 								fig = plt.figure(figsize=(10,5))
 								ax = fig.gca()
-							
+
 							#create all the time axis points (LHS of each bin)
 							taxisvals = [ datetime.datetime.fromtimestamp(tzero + x*tbin, tz) for x in xrange(len(vals)) ]
 
@@ -1278,18 +1282,18 @@ if __name__=='__main__':
 								vals.append(0)
 							else:
 								raise NotImplementedError("allow_incomplete_bin cannot be False")
-							
+
 							dates = mdates.date2num(taxisvals)
 
 							#plot the time series data for this event type on the master figure for this stat type
 							ax.plot_date(dates, vals, '-', drawstyle='steps-post', label=label)  #date is the start of the bin, we want the val to extend to the right across the bin, steps-post does that
-							
+
 							#fill below the plot, histogram style, if there's only one thing plotted and appropriate
 							if (len(getPlottedEDatas())==1 and getPlottedEDatas()[0].stype in (COUNT, SUM)):
 								for i in range(len(dates)-1): ax.fill_between((dates[i], dates[i+1]), vals[i])
-							
+
 							if addlegend: ax.legend(loc=legend_location)  #do this *before* hacking on the error bars (we only adderrbars if there's just one event)
-							
+
 							#add error bars if appropriate (by drawing all three lines associated with each bin by hand)
 							if adderrbars and e.stype==AVERAGE:
 								##start, end = ax.get_xaxis().get_data_interval().tolist()
@@ -1330,13 +1334,13 @@ if __name__=='__main__':
 										#vals and dates have that last bin RHS point tacked on; event counters do not
 										assert(i==len(e.stddevs))
 										err = 0
-									
+
 									errdates.append(errdate)
 									ytops.append(val+err)
 									ybottoms.append(val-err)
 									xlefts.append(errdate - errwidth*0.5*binwidth)
 									xrights.append(errdate + errwidth*0.5*binwidth)
-								
+
 								#hack regarding negative ymin
 								for x in ybottoms:
 									if x<0:
@@ -1346,13 +1350,13 @@ if __name__=='__main__':
 								ax.vlines(errdates, ybottoms, ytops, label='_nolabel_')
 								ax.hlines(ytops   , xlefts, xrights, label='_nolabel_')
 								ax.hlines(ybottoms, xlefts, xrights, label='_nolabel_')
-							
+
 					#identifiers used in output filenames (if applicable)
 					names = []
 					for e in edatas_master:
 						if e.stype==stype:
 							names.append(e.name)
-					
+
 					#if we got any events of this stat type, put the final touches on the master figure for the stat type
 					if gotone:
 						if title is None:
@@ -1407,12 +1411,12 @@ if __name__=='__main__':
 								#sep = '\n'
 								titletmp += "%s%s %s" % (sep, getTotalStr(e), word)
 							fig.suptitle(titletmp)
-						
+
 						#add y-axis units
 						if units is not None: ax.set_ylabel(units)
 
 						rymin, rymax = ax.set_ylim((ymin, ymax))
-						
+
 						#hack regarding negative ymin
 						#sometimes there are no negative values yet the y axis goes negative, and it looks bad
 						#detect that and reset ymin to zero
@@ -1421,7 +1425,7 @@ if __name__=='__main__':
 
 						#rotate date labels so that they don't overlap
 						fig.autofmt_xdate(rotation=45)
-						
+
 						#save it to a file, if applicable
 						if save_plots:
 							extra = 'time_series_%ds' % tbin
@@ -1429,13 +1433,13 @@ if __name__=='__main__':
 							if breakdown_by_field_number:
 								extra = 'breakdown%d.%s' % (breakdown_by_field_number, extra)
 							fname = plotfname(tzero, tlast, stype, names, extra)
-							
+
 							#it seems that if there's an explicity ymax, the 'tight' bbox cuts things off
 							if ymax is not None:
 								fig.savefig(fname)
 							else:
 								fig.savefig(fname, bbox_inches='tight', pad_inches=0.35)
-							
+
 							if printstuff:
 								print
 								print "plot saved as:", fname
@@ -1453,7 +1457,7 @@ if __name__=='__main__':
 
 				for stype in (COUNT, SUM, AVERAGE):
 					gotone = False
-					
+
 					#search all events for the stat type we're working on (just save the numbers as opposed to making any figures, since, unlike the time series figures, there is only one plot on the master figure for each stat type)
 					for e in getPlottedEDatas():
 						if e.stype==stype:
@@ -1466,18 +1470,18 @@ if __name__=='__main__':
 							vals[stype].append(val)
 							errs[stype].append(err)
 							labels[stype].append(e.name)
-							
+
 					#identifiers used in output filenames (if applicable)
 					names = []
 					for e in edatas_master:
 						if e.stype==stype:
 							names.append(e.name)
-					
+
 					#if we got any events of this stat type, create the figure and plot either a bar chart or pie chart
 					if gotone:
 						fig = plt.figure(figsize=(7,7))
 						ax = fig.gca()
-						
+
 						rstr = '%s - %s' % (
 							time.strftime(best_chance_format.format, time.localtime(tzero)),
 							time.strftime(best_chance_format.format, time.localtime(tlast)),
@@ -1493,14 +1497,14 @@ if __name__=='__main__':
 								yerr = None
 							ax.bar(xcoord, vals[stype], width, yerr=yerr, ecolor='k', align='center', bottom=0)
 							ax.axhline(y=0, color='k')
-							
+
 							if units is not None and stype in (SUM, AVERAGE): ax.set_ylabel(units)
 							plt.xticks(xcoord, [ l.replace(' ','\n') for l in labels[stype]])  #(I don't know how do this this using the explicit fig or ax object)
 							if title is None:
 								fig.suptitle('%s, %s' % (stypeStrs[stype], rstr))  #if I put a newline in this like the other plots, it overwrites the, e.g., 1e12 units at the top of the y-axis
 							else:
 								fig.suptitle(title)
-							
+
 							ax.set_ylim((ymin, ymax))
 						else:  #(pie charts)
 							for i in range(len(labels[stype])):
@@ -1538,7 +1542,7 @@ if __name__=='__main__':
 									sep = '\n'
 									titletmp += "%s%s %s" % (sep, getTotalStr(e), word)
 								fig.suptitle(titletmp)
-						
+
 						#save it to a file, if applicable
 						if save_plots:
 							extra = 'total'
@@ -1549,7 +1553,7 @@ if __name__=='__main__':
 							if printstuff:
 								print
 								print "plot saved as:", fname
-		
+
 		if show_plots: plt.show()
 	except IOError, e:
 		if not (hasattr(e, 'errno') and e.errno==errno.EPIPE): raise
