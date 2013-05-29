@@ -1434,7 +1434,7 @@ if __name__=='__main__':
 								extra = 'breakdown%d.%s' % (breakdown_by_field_number, extra)
 							fname = plotfname(tzero, tlast, stype, names, extra)
 
-							#it seems that if there's an explicity ymax, the 'tight' bbox cuts things off
+							#it seems that if ymax is explicitly set, the 'tight' bbox cuts things off
 							if ymax is not None:
 								fig.savefig(fname)
 							else:
