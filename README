@@ -1,4 +1,4 @@
-You have data buried in log files.  Need to identify some trends?  Need to 
+Say you have data buried in log files.  Need to identify some trends?  Need to 
 extract, summarize, and analyze numbers included in the log entries?  Want 
 something quick and easy without the need for an entire infrastructure for log 
 analysis?  That's what logstats is for.
@@ -12,8 +12,8 @@ too.  It can also compute overall statistics in addition to the time series
 statistics.
 
 logstats is a standalone, command-line script, written in python, with no other 
-external dependencies other than matplotlib (and that's only needed for extra 
-plotting in addition to the default text output).
+external dependencies other than matplotlib, and that's only needed for extra 
+plotting in addition to the default text output.
 
 For more information and examples, please see:
 
